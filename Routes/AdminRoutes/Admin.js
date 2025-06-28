@@ -647,4 +647,284 @@ router.get('/export/:type', authenticate, adminOnly, async (req, res) => {
   }
 });
 
+router.get('/admin/test-provider-connectivity', authenticate, adminOnly, async (req, res) => {
+  try {
+    console.log('=== Admin Connectivity Test Started ===');
+    console.log('Admin User:', req.user.email);
+    
+    const iShareService = require('../../Services/Ishare');
+    const testResult = await iShareService.testConnectivity();
+
+    res.json({
+      success: testResult.connectivity,
+      testResult,
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+
+  } catch (error) {
+    console.error('Connectivity test route error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.stack,
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+  }
+});
+
+// Debug transfer with detailed logging (Admin only)
+router.post('/admin/debug-transfer', authenticate, adminOnly, async (req, res) => {
+  try {
+    const { phoneNumber, amountMB = 50 } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'Phone number is required for debug transfer' });
+    }
+
+    const iShareService = require('../../Services/Ishare');
+    const transactionId = iShareService.generateTransactionId('DEBUG');
+
+    console.log('=== DEBUG TRANSFER START ===');
+    console.log('Admin User:', req.user.email);
+    console.log('Target Phone:', phoneNumber);
+    console.log('Amount:', amountMB);
+    console.log('Transaction ID:', transactionId);
+    console.log('Timestamp:', new Date().toISOString());
+
+    // Test the transfer without saving to database
+    const result = await iShareService.sendTransfer(phoneNumber, amountMB, transactionId);
+
+    console.log('=== DEBUG TRANSFER RESULT ===');
+    console.log('Result:', JSON.stringify(result, null, 2));
+
+    res.json({
+      success: true,
+      debugResult: result,
+      testParameters: {
+        phoneNumber,
+        amountMB,
+        transactionId,
+        timestamp: new Date().toISOString(),
+        testedBy: req.user.email
+      },
+      interpretation: {
+        isSuccessful: result.success,
+        responseCode: result.responseCode,
+        errorMessage: result.success ? null : result.message,
+        recommendations: result.success ? 
+          ['Transfer should work normally'] : 
+          [
+            'Check error code: ' + result.responseCode,
+            'Error message: ' + result.message,
+            'Review phone number format',
+            'Check provider balance',
+            'Verify credentials'
+          ]
+      }
+    });
+
+  } catch (error) {
+    console.error('=== DEBUG TRANSFER ERROR ===');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+
+    res.json({
+      success: false,
+      error: error.message,
+      errorDetails: {
+        name: error.constructor.name,
+        code: error.code,
+        stack: error.stack
+      },
+      testParameters: {
+        phoneNumber: req.body.phoneNumber,
+        amountMB: req.body.amountMB || 50,
+        timestamp: new Date().toISOString(),
+        testedBy: req.user.email
+      },
+      recommendations: [
+        'Check network connectivity',
+        'Verify provider endpoint is accessible',
+        'Check if credentials are correct',
+        'Review phone number format'
+      ]
+    });
+  }
+});
+
+// Test phone number formatting (Admin only)
+router.post('/admin/test-phone-format', authenticate, adminOnly, async (req, res) => {
+  try {
+    const { phoneNumber } = req.body;
+
+    if (!phoneNumber) {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+
+    const iShareService = require('../../Services/Ishare');
+    
+    console.log('=== PHONE FORMAT TEST ===');
+    console.log('Admin User:', req.user.email);
+    console.log('Input:', phoneNumber);
+
+    const formatted = iShareService.formatMsisdn(phoneNumber);
+
+    console.log('Formatted:', formatted);
+
+    res.json({
+      success: true,
+      input: phoneNumber,
+      formatted: formatted,
+      inputType: typeof phoneNumber,
+      inputLength: String(phoneNumber).length,
+      formattedLength: formatted.length,
+      analysis: {
+        isValid: formatted.length === 12,
+        startsWithCountryCode: formatted.startsWith('233'),
+        mobilePrefix: formatted.substring(0, 5),
+        recommendation: formatted.length === 12 ? 'Phone number formatted correctly' : 'Phone number format issue'
+      },
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+
+  } catch (error) {
+    console.error('Phone format test error:', error);
+    res.json({
+      success: false,
+      input: req.body.phoneNumber,
+      error: error.message,
+      analysis: {
+        isValid: false,
+        reason: error.message,
+        recommendation: 'Fix phone number format according to error message'
+      },
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+  }
+});
+
+// Test provider credentials (Admin only)
+router.get('/admin/test-provider-credentials', authenticate, adminOnly, async (req, res) => {
+  try {
+    console.log('=== Provider Credentials Test ===');
+    console.log('Admin User:', req.user.email);
+    
+    const iShareService = require('../../Services/Ishare');
+    
+    // Test balance check to verify credentials
+    const balanceResult = await iShareService.checkBalance();
+    
+    res.json({
+      success: balanceResult.success,
+      credentialsValid: balanceResult.success,
+      balanceCheck: balanceResult,
+      providerInfo: {
+        endpoint: process.env.ISHARE_ENDPOINT || 'http://41.215.168.146:443/FlexiShareBundles.asmx',
+        username: process.env.ISHARE_USERNAME || 'NetwiseSolutions',
+        dealerMsisdn: process.env.ISHARE_DEALER_MSISDN || '233270241113'
+      },
+      analysis: {
+        canConnect: balanceResult.responseCode !== null,
+        authenticationWorking: balanceResult.responseCode === '200',
+        recommendation: balanceResult.success ? 
+          'Credentials are working correctly' : 
+          `Check credentials. Error: ${balanceResult.message}`
+      },
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+
+  } catch (error) {
+    console.error('Credentials test error:', error);
+    res.json({
+      success: false,
+      credentialsValid: false,
+      error: error.message,
+      analysis: {
+        canConnect: false,
+        authenticationWorking: false,
+        recommendation: 'Check network connectivity and credentials'
+      },
+      timestamp: new Date().toISOString(),
+      testedBy: req.user.email
+    });
+  }
+});
+
+// Get detailed provider configuration (Admin only)
+router.get('/admin/provider-config', authenticate, adminOnly, async (req, res) => {
+  try {
+    res.json({
+      configuration: {
+        endpoint: process.env.ISHARE_ENDPOINT || 'http://41.215.168.146:443/FlexiShareBundles.asmx',
+        username: process.env.ISHARE_USERNAME || 'NetwiseSolutions',
+        dealerMsisdn: process.env.ISHARE_DEALER_MSISDN || '233270241113',
+        passwordSet: !!(process.env.ISHARE_PASSWORD || 'f2fe6a63d960578490f3097d9447fcd0')
+      },
+      environment: {
+        nodeEnv: process.env.NODE_ENV,
+        mongoUri: process.env.MONGODB_URI ? 'Set (MongoDB Atlas)' : 'Not set',
+        jwtSecret: process.env.JWT_SECRET ? 'Set' : 'Not set'
+      },
+      serverInfo: {
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime(),
+        version: process.version,
+        platform: process.platform
+      },
+      viewedBy: req.user.email
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// UPDATED: Check Provider Balance with enhanced logging (Admin only)
+router.get('/admin/provider-balance', authenticate, adminOnly, async (req, res) => {
+  try {
+    console.log('=== Provider Balance Check ===');
+    console.log('Admin User:', req.user.email);
+    
+    const iShareService = require('../../Services/Ishare');
+    const balanceResult = await iShareService.checkBalance();
+
+    console.log('Balance Result:', JSON.stringify(balanceResult, null, 2));
+
+    res.json({
+      success: balanceResult.success,
+      providerBalance: {
+        balance: balanceResult.balance,
+        balanceInGB: balanceResult.balanceInGB,
+        expireTime: balanceResult.expireTime,
+        message: balanceResult.message,
+        responseCode: balanceResult.responseCode
+      },
+      analysis: {
+        hasBalance: balanceResult.balance > 0,
+        balanceStatus: balanceResult.balance > 1000 ? 'Good' : 
+                      balanceResult.balance > 100 ? 'Low' : 'Critical',
+        recommendation: balanceResult.balance > 100 ? 
+          'Balance is sufficient for transfers' : 
+          'Balance is low, consider topping up'
+      },
+      timestamp: new Date().toISOString(),
+      checkedBy: req.user.email
+    });
+
+  } catch (error) {
+    console.error('Provider Balance Check Error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check provider balance',
+      details: error.message,
+      timestamp: new Date().toISOString(),
+      checkedBy: req.user.email
+    });
+  }
+});
+
 module.exports = router;

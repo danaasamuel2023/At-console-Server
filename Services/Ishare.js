@@ -1,4 +1,4 @@
-// services/ishareService.js
+// services/ishareService.js - Complete Updated Version
 const axios = require('axios');
 
 class IShareService {
@@ -7,6 +7,60 @@ class IShareService {
     this.username = process.env.ISHARE_USERNAME || 'NetwiseSolutions';
     this.password = process.env.ISHARE_PASSWORD || 'f2fe6a63d960578490f3097d9447fcd0';
     this.dealerMsisdn = process.env.ISHARE_DEALER_MSISDN || '233270241113';
+  }
+
+  // Test connectivity to provider
+  async testConnectivity() {
+    try {
+      console.log('=== Testing Provider Connectivity ===');
+      console.log('Endpoint:', this.endpoint);
+      console.log('Username:', this.username);
+      console.log('Dealer MSISDN:', this.dealerMsisdn);
+
+      // First, try a simple HTTP request to the endpoint
+      const simpleResponse = await axios.get(this.endpoint, {
+        timeout: 10000,
+        validateStatus: function (status) {
+          return status >= 200 && status < 600; // Accept any status
+        }
+      });
+
+      console.log('Simple HTTP GET Response:');
+      console.log('Status:', simpleResponse.status);
+      console.log('Headers:', simpleResponse.headers);
+      console.log('Data snippet:', simpleResponse.data.substring(0, 500) + '...');
+
+      // Now try the balance check which is simpler than transfer
+      console.log('\n=== Testing Balance Check ===');
+      const balanceResult = await this.checkBalance();
+      console.log('Balance check result:', balanceResult);
+
+      return {
+        connectivity: true,
+        httpStatus: simpleResponse.status,
+        balanceCheck: balanceResult,
+        message: 'Connectivity test successful'
+      };
+
+    } catch (error) {
+      console.error('=== Connectivity Test Failed ===');
+      console.error('Error Type:', error.constructor.name);
+      console.error('Error Message:', error.message);
+      console.error('Error Code:', error.code);
+
+      if (error.response) {
+        console.error('Response Status:', error.response.status);
+        console.error('Response Data:', error.response.data.substring(0, 500));
+      }
+
+      return {
+        connectivity: false,
+        error: error.message,
+        errorCode: error.code,
+        httpStatus: error.response?.status,
+        message: 'Connectivity test failed'
+      };
+    }
   }
 
   // Check balance on the dealer MSISDN
@@ -24,22 +78,42 @@ class IShareService {
 </soapenv:Envelope>`;
 
     try {
+      console.log('=== Balance Check Request ===');
+      console.log('Endpoint:', this.endpoint);
+      console.log('SOAP Request:', soapRequest);
+
       const response = await axios.post(this.endpoint, soapRequest, {
         headers: {
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': 'http://tempuri.org/FlexiShareBalanceCheck'
         },
-        timeout: 30000 // 30 seconds timeout
+        timeout: 30000, // 30 seconds timeout
+        validateStatus: function (status) {
+          return status >= 200 && status < 600; // Accept any status
+        }
       });
+
+      console.log('=== Balance Check Response ===');
+      console.log('Status:', response.status);
+      console.log('Raw Response:', response.data);
 
       return this.parseBalanceResponse(response.data);
     } catch (error) {
-      console.error('iShare Balance Check Error:', error.message);
-      throw new Error('Failed to check iShare balance from provider');
+      console.error('=== Balance Check Error ===');
+      console.error('Error Type:', error.constructor.name);
+      console.error('Error Message:', error.message);
+      console.error('Error Code:', error.code);
+
+      if (error.response) {
+        console.error('Response Status:', error.response.status);
+        console.error('Response Data:', error.response.data);
+      }
+
+      throw new Error(`Failed to check iShare balance: ${error.message}`);
     }
   }
 
-  // Send iShare transfer
+  // Send iShare transfer with enhanced error handling
   async sendTransfer(recipientMsisdn, amountMB, transactionId) {
     // Validate minimum amount (API requires 50MB minimum)
     if (amountMB < 50) {
@@ -65,20 +139,86 @@ class IShareService {
 </soapenv:Envelope>`;
 
     try {
-      console.log('Sending SOAP request with formatted recipient:', formattedRecipient);
+      console.log('=== iShare Transfer Request ===');
+      console.log('Endpoint:', this.endpoint);
+      console.log('Original recipient:', recipientMsisdn);
+      console.log('Formatted recipient:', formattedRecipient);
+      console.log('Amount:', amountMB, 'MB');
+      console.log('Transaction ID:', transactionId);
+      console.log('SOAP Request:', soapRequest);
       
       const response = await axios.post(this.endpoint, soapRequest, {
         headers: {
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': 'http://tempuri.org/FlexiIshareBundle'
         },
-        timeout: 60000 // 60 seconds timeout for transfers
+        timeout: 60000, // 60 seconds timeout for transfers
+        validateStatus: function (status) {
+          // Accept any status code to see the actual response
+          return status >= 200 && status < 600;
+        }
       });
 
-      return this.parseTransferResponse(response.data);
+      console.log('=== Provider Response ===');
+      console.log('Status:', response.status);
+      console.log('Headers:', JSON.stringify(response.headers, null, 2));
+      console.log('Raw Response Data:', response.data);
+
+      // Parse the response regardless of status
+      const parsedResponse = this.parseTransferResponse(response.data);
+      console.log('Parsed Response:', JSON.stringify(parsedResponse, null, 2));
+
+      return parsedResponse;
+
     } catch (error) {
-      console.error('iShare Transfer Error:', error.message);
-      throw new Error('Failed to send iShare transfer to provider');
+      console.error('=== iShare Transfer Error Details ===');
+      console.error('Error Type:', error.constructor.name);
+      console.error('Error Message:', error.message);
+      console.error('Error Code:', error.code);
+      console.error('Error Stack:', error.stack);
+      
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        console.error('Response Status:', error.response.status);
+        console.error('Response Status Text:', error.response.statusText);
+        console.error('Response Headers:', JSON.stringify(error.response.headers, null, 2));
+        console.error('Response Data:', error.response.data);
+        
+        // Try to parse error response
+        if (error.response.data) {
+          try {
+            const errorParsed = this.parseTransferResponse(error.response.data);
+            console.error('Parsed Error Response:', JSON.stringify(errorParsed, null, 2));
+            
+            const errorMessage = errorParsed.message || 'Unknown provider error';
+            const errorCode = errorParsed.responseCode || 'Unknown';
+            throw new Error(`Provider Error: ${errorMessage} (Code: ${errorCode})`);
+          } catch (parseError) {
+            console.error('Could not parse error response:', parseError.message);
+            throw new Error(`HTTP ${error.response.status}: ${error.response.data}`);
+          }
+        } else {
+          throw new Error(`HTTP Error: ${error.response.status} - ${error.response.statusText}`);
+        }
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('Request Details:', error.request);
+        console.error('No response received from provider');
+        
+        if (error.code === 'ECONNREFUSED') {
+          throw new Error('Connection refused - Provider service may be down or unreachable');
+        } else if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
+          throw new Error('Connection timeout - Provider service is not responding');
+        } else if (error.code === 'ENOTFOUND') {
+          throw new Error('DNS resolution failed - Cannot find provider server');
+        } else {
+          throw new Error(`Network error: ${error.message} (${error.code || 'Unknown code'})`);
+        }
+      } else {
+        // Something happened in setting up the request
+        console.error('Request Setup Error:', error.message);
+        throw new Error(`Request setup error: ${error.message}`);
+      }
     }
   }
 
@@ -97,24 +237,44 @@ class IShareService {
 </soapenv:Envelope>`;
 
     try {
+      console.log('=== Transaction Status Check ===');
+      console.log('Transaction ID:', transactionId);
+      console.log('SOAP Request:', soapRequest);
+
       const response = await axios.post(this.endpoint, soapRequest, {
         headers: {
           'Content-Type': 'text/xml; charset=utf-8',
           'SOAPAction': 'http://tempuri.org/FlexiIshareTranxStatus'
         },
-        timeout: 30000 // 30 seconds timeout
+        timeout: 30000, // 30 seconds timeout
+        validateStatus: function (status) {
+          return status >= 200 && status < 600;
+        }
       });
+
+      console.log('=== Transaction Status Response ===');
+      console.log('Status:', response.status);
+      console.log('Raw Response:', response.data);
 
       return this.parseTransactionStatusResponse(response.data);
     } catch (error) {
-      console.error('iShare Transaction Status Error:', error.message);
-      throw new Error('Failed to check transaction status');
+      console.error('Transaction Status Check Error:', error.message);
+      throw new Error(`Failed to check transaction status: ${error.message}`);
     }
   }
 
-  // Parse balance check response
+  // Enhanced parseBalanceResponse
   parseBalanceResponse(xmlResponse) {
     try {
+      console.log('=== Parsing Balance Response ===');
+      console.log('XML Response:', xmlResponse);
+
+      // Check if response is HTML (error page) instead of XML
+      if (typeof xmlResponse === 'string' && xmlResponse.trim().startsWith('<html')) {
+        console.error('Received HTML response instead of XML');
+        throw new Error('Provider returned HTML error page instead of XML response');
+      }
+
       // Extract response code and message
       const responseCodeMatch = xmlResponse.match(/<ResponseCode>(\d+)<\/ResponseCode>/);
       const responseMsgMatch = xmlResponse.match(/<ResponseMsg>(.*?)<\/ResponseMsg>/);
@@ -126,23 +286,52 @@ class IShareService {
       const dataBalance = dataBalanceMatch ? parseInt(dataBalanceMatch[1]) : 0;
       const expireTime = expireTimeMatch ? expireTimeMatch[1] : null;
 
-      return {
+      console.log('Extracted balance values:');
+      console.log('- Response Code:', responseCode);
+      console.log('- Response Message:', responseMsg);
+      console.log('- Data Balance:', dataBalance, 'MB');
+      console.log('- Expire Time:', expireTime);
+
+      const result = {
         success: responseCode === '200',
         responseCode,
-        message: responseMsg,
+        message: responseMsg || 'No message from provider',
         balance: dataBalance,
         balanceInGB: (dataBalance / 1024).toFixed(2),
-        expireTime
+        expireTime,
+        rawResponse: xmlResponse
       };
+
+      console.log('Final balance result:', result);
+      return result;
+
     } catch (error) {
       console.error('Error parsing balance response:', error);
-      throw new Error('Failed to parse balance response');
+      console.error('Raw XML that failed to parse:', xmlResponse);
+      throw new Error(`Failed to parse balance response: ${error.message}`);
     }
   }
 
-  // Parse transfer response
+  // Enhanced parseTransferResponse
   parseTransferResponse(xmlResponse) {
     try {
+      console.log('=== Parsing Transfer Response ===');
+      console.log('XML Response:', xmlResponse);
+
+      // Check if response is HTML (error page) instead of XML
+      if (typeof xmlResponse === 'string' && xmlResponse.trim().startsWith('<html')) {
+        console.error('Received HTML response instead of XML');
+        return {
+          success: false,
+          responseCode: null,
+          message: 'Provider returned HTML error page instead of XML response',
+          systemTransactionId: null,
+          vendorTransactionId: null,
+          rawResponse: xmlResponse,
+          parseError: 'HTML response received'
+        };
+      }
+
       const responseCodeMatch = xmlResponse.match(/<ResponseCode>(\d+)<\/ResponseCode>/);
       const responseMsgMatch = xmlResponse.match(/<ResponseMsg>(.*?)<\/ResponseMsg>/);
       const systemTranxMatch = xmlResponse.match(/<systemTranx_id>(.*?)<\/systemTranx_id>/);
@@ -153,22 +342,50 @@ class IShareService {
       const systemTranxId = systemTranxMatch ? systemTranxMatch[1] : null;
       const vendorTranxId = vendorTranxMatch ? vendorTranxMatch[1] : null;
 
-      return {
+      console.log('Extracted transfer values:');
+      console.log('- Response Code:', responseCode);
+      console.log('- Response Message:', responseMsg);
+      console.log('- System Transaction ID:', systemTranxId);
+      console.log('- Vendor Transaction ID:', vendorTranxId);
+
+      // Get human-readable error message if available
+      const humanReadableMessage = responseCode ? this.getErrorMessage(responseCode) : responseMsg;
+
+      const result = {
         success: responseCode === '200',
         responseCode,
-        message: responseMsg,
+        message: responseMsg || humanReadableMessage || 'No message from provider',
         systemTransactionId: systemTranxId,
-        vendorTransactionId: vendorTranxId
+        vendorTransactionId: vendorTranxId,
+        rawResponse: xmlResponse // Include raw response for debugging
       };
+
+      console.log('Final transfer result:', result);
+      return result;
+
     } catch (error) {
       console.error('Error parsing transfer response:', error);
-      throw new Error('Failed to parse transfer response');
+      console.error('Raw XML that failed to parse:', xmlResponse);
+      
+      // Return a structured error response
+      return {
+        success: false,
+        responseCode: null,
+        message: `Failed to parse provider response: ${error.message}`,
+        systemTransactionId: null,
+        vendorTransactionId: null,
+        rawResponse: xmlResponse,
+        parseError: error.message
+      };
     }
   }
 
   // Parse transaction status response
   parseTransactionStatusResponse(xmlResponse) {
     try {
+      console.log('=== Parsing Transaction Status Response ===');
+      console.log('XML Response:', xmlResponse);
+
       const responseMsgMatch = xmlResponse.match(/<ResponseMsg>(.*?)<\/ResponseMsg>/);
       const sharedBundleMatch = xmlResponse.match(/<SharedBundle>(\d+)<\/SharedBundle>/);
       const vendorTranxMatch = xmlResponse.match(/<VendorTranxId>(.*?)<\/VendorTranxId>/);
@@ -176,23 +393,29 @@ class IShareService {
       const senderMsisdnMatch = xmlResponse.match(/<SenderMsisdn>(.*?)<\/SenderMsisdn>/);
       const recipientMsisdnMatch = xmlResponse.match(/<RecipientMsisdn>(.*?)<\/RecipientMsisdn>/);
 
-      return {
+      const result = {
         message: responseMsgMatch ? responseMsgMatch[1] : null,
         sharedBundle: sharedBundleMatch ? parseInt(sharedBundleMatch[1]) : 0,
         vendorTransactionId: vendorTranxMatch ? vendorTranxMatch[1] : null,
         systemTransactionId: systemTranxMatch ? systemTranxMatch[1] : null,
         senderMsisdn: senderMsisdnMatch ? senderMsisdnMatch[1] : null,
-        recipientMsisdn: recipientMsisdnMatch ? recipientMsisdnMatch[1] : null
+        recipientMsisdn: recipientMsisdnMatch ? recipientMsisdnMatch[1] : null,
+        rawResponse: xmlResponse
       };
+
+      console.log('Transaction status result:', result);
+      return result;
+
     } catch (error) {
       console.error('Error parsing transaction status response:', error);
-      throw new Error('Failed to parse transaction status response');
+      throw new Error(`Failed to parse transaction status response: ${error.message}`);
     }
   }
 
-  // UPDATED: Format phone number to international format (12 digits)
+  // Format phone number to international format (12 digits)
   formatMsisdn(phoneNumber) {
     // Add debugging to see what we're receiving
+    console.log('=== Phone Number Formatting ===');
     console.log('Original phoneNumber received:', phoneNumber, 'Type:', typeof phoneNumber);
     
     // Handle null, undefined, or empty values
@@ -250,10 +473,12 @@ class IShareService {
     
     if (!validPrefixes.includes(prefix)) {
       console.warn(`Warning: Phone number ${cleaned} may not be a valid Ghana mobile number. Prefix: ${prefix}`);
+      console.warn(`Valid prefixes are: ${validPrefixes.join(', ')}`);
       // Continue anyway as API might accept other formats
     }
     
     console.log('Final formatted number:', cleaned);
+    console.log('=== End Phone Number Formatting ===');
     return cleaned;
   }
 
@@ -290,14 +515,14 @@ class IShareService {
     const phoneStr = String(phoneNumber).trim();
     const cleaned = phoneStr.replace(/\D/g, '');
 
-    if (cleaned.length === 10) {
+    if (cleaned.length === 9 || cleaned.length === 10) {
       return { valid: true, cleaned: cleaned };
     } else if (cleaned.length === 12 && cleaned.startsWith('233')) {
       return { valid: true, cleaned: cleaned.substring(3) }; // Return 10-digit local format
     } else {
       return { 
         valid: false, 
-        error: `Invalid phone number format. Expected 10 digits, got ${cleaned.length}`,
+        error: `Invalid phone number format. Expected 9-10 digits, got ${cleaned.length}`,
         received: cleaned
       };
     }
