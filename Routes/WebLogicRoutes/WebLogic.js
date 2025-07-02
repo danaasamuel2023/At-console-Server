@@ -678,7 +678,7 @@ router.get('/admin/transfers', authenticate, adminOnly, async (req, res) => {
 // Check Provider Balance (Admin only)
 router.get('/admin/provider-balance', authenticate, adminOnly, async (req, res) => {
   try {
-    const iShareService = require('../../services/ishareService');
+    const iShareService = require('../../Services/Ishare');
     const balanceResult = await iShareService.checkBalance();
 
     res.json({
@@ -1063,7 +1063,7 @@ router.get('/transfer/status/:transactionId', authenticate, async (req, res) => 
     // If transaction was successful, optionally check with provider for real-time status
     if (transfer.status === 'completed') {
       try {
-        const iShareService = require('../../services/ishareService');
+        const iShareService = require('../../Services/Ishare');
         const statusResult = await iShareService.checkTransactionStatus(transactionId);
 
         res.json({
